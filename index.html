@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Kinetic Sorcery - 新手巫師實戰訓練</title>
-    <!-- 引入核心的顏色追蹤庫與 3D 動效渲染引擎 -->
+    <!-- 引入核心的顏色追蹤庫 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; font-family: 'PingFang TC', sans-serif; }
@@ -12,14 +12,27 @@
         /* 相機畫面全螢幕背景 */
         #webcam { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; transform: scaleX(-1); }
         
-        /* 遊戲主畫布（渲染火球、準星與震動效果） */
+        /* 遊戲與特效主畫布 */
         #game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
         
+        /* 【全新】初始主畫面 Cover 層 */
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+            background-color: #000; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            cursor: pointer; transition: opacity 0.8s ease;
+        }
+        #start-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 11; }
+        #start-ui { position: relative; z-index: 12; text-align: center; pointer-events: none; }
+        #game-title { font-size: 48px; font-weight: bold; color: #ff4500; text-shadow: 0 0 25px #ff0000; letter-spacing: 4px; margin-bottom: 10px; }
+        #start-prompt { font-size: 20px; color: #ffd700; text-shadow: 0 0 10px #ff8c00; animation: pulseGlow 2s infinite ease-in-out; }
+
+        @keyframes pulseGlow { 0%, 100% { opacity: 0.5; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } }
+
         /* 頂部引進與狀態引導 */
-        #instruction { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 3; background: rgba(0,0,0,0.75); color: #fff; padding: 12px 24px; border-radius: 30px; border: 1px solid #ff4500; text-align: center; box-shadow: 0 0 15px rgba(255, 69, 0, 0.4); }
+        #instruction { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 3; background: rgba(0,0,0,0.75); color: #fff; padding: 12px 24px; border-radius: 30px; border: 1px solid #ff4500; text-align: center; box-shadow: 0 0 15px rgba(255, 69, 0, 0.4); display: none; }
         
         /* 右下角魔法計數器 */
-        #scoreboard { position: absolute; bottom: 20px; right: 20px; z-index: 3; background: rgba(0,0,0,0.8); color: #fff; padding: 15px; border-radius: 12px; border: 2px solid #00d2ff; font-weight: bold; font-size: 16px; line-height: 1.6; box-shadow: 0 0 10px rgba(0, 210, 255, 0.3); }
+        #scoreboard { position: absolute; bottom: 20px; right: 20px; z-index: 3; background: rgba(0,0,0,0.8); color: #fff; padding: 15px; border-radius: 12px; border: 2px solid #00d2ff; font-weight: bold; font-size: 16px; line-height: 1.6; box-shadow: 0 0 10px rgba(0, 210, 255, 0.3); display: none; }
         .success { color: #00d2ff; }
         .failed { color: #ff4500; }
 
@@ -70,6 +83,15 @@
 </head>
 <body>
 
+    <!-- 初始主畫面 -->
+    <div id="start-screen" onclick="startGame()">
+        <canvas id="start-canvas"></canvas>
+        <div id="start-ui">
+            <div id="game-title">KINETIC SORCERY</div>
+            <div id="start-prompt">─ 點擊螢幕 喚醒魔杖 ─</div>
+        </div>
+    </div>
+
     <!-- 實時鏡頭 -->
     <video id="webcam" preload autoplay loop muted playsinline></video>
     
@@ -101,93 +123,195 @@
         const video = document.getElementById('webcam');
         const canvas = document.getElementById('game-canvas');
         const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const startCanvas = document.getElementById('start-canvas');
+        const startCtx = startCanvas.getContext('2d');
         const gameOverScreen = document.getElementById('game-over-screen');
         const dangerGlowScreen = document.getElementById('danger-glow-screen');
 
-        // 數據狀態記分板
+        let gameStarted = false;
         let scoreSuccess = 0;
         let scoreFailed = 0;
         let isGameOver = false;
 
-        // 遊戲物理機制參數
         let fireball = { x: 0, y: 0, size: 5, speedX: 0, speedY: 0, active: false };
         let crosshair = { x: 0, y: 0, rotation: 0, targetSize: 35, currentSize: 35, hasTracking: false };
         let explosions = []; 
 
-        // 1. 啟動手機相機鏡頭
-        const videoConstraints = {
-            audio: false,
-            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
-        };
+        // 太陽日冕火焰粒子與魔法陣設定
+        let coronaParticles = [];
+        let magicCircleImg = new Image();
+        // 直接加載你提供的這張史詩級符文魔法陣影像
+        magicCircleImg.src = "https://images.prodia.xyz/8c72851f-d72b-4e11-be56-eb042bf9e0ad.png"; 
+        // 備用防呆：如果外部CDN失效，直接繪製幾何線條
+        let circleRotation = 0;
 
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia(videoConstraints)
-                .then(function(stream) {
-                    video.srcObject = stream;
-                    video.play().catch(function(e) { console.log("播放失敗", e); });
-                }).catch(function(err) {
-                    navigator.mediaDevices.getUserMedia({ video: true })
-                        .then(function(stream) {
-                            video.srcObject = stream;
-                        }).catch(function(e) {
-                            alert("相機啟動失敗，請確認是否給予相機權限。");
-                        });
+        function resizeCanvases() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            startCanvas.width = window.innerWidth;
+            startCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvases);
+        resizeCanvases();
+
+        // 太陽日冕火焰粒子渲染器
+        function updateStartScreen() {
+            if (gameStarted) return;
+            startCtx.fillStyle = '#000000';
+            startCtx.fillRect(0, 0, startCanvas.width, startCanvas.height);
+
+            let centerX = startCanvas.width / 2;
+            let centerY = startCanvas.height / 2;
+            // 根據螢幕寬高取得最適合的魔法陣半徑
+            let baseRadius = Math.min(startCanvas.width, startCanvas.height) * 0.32;
+
+            // 1. 生成日冕日珥火焰粒子
+            if (coronaParticles.length < 150) {
+                let angle = Math.random() * Math.PI * 2;
+                // 從圓環邊緣噴發出火焰
+                let speed = Math.random() * 2 + 1.5;
+                coronaParticles.push({
+                    x: centerX + Math.cos(angle) * baseRadius,
+                    y: centerY + Math.sin(angle) * baseRadius,
+                    vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 1,
+                    vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 1,
+                    life: Math.random() * 40 + 20,
+                    maxLife: 60,
+                    size: Math.random() * 25 + 15
                 });
+            }
+
+            // 2. 渲染日冕火焰環境特效 (疊加混色模式)
+            startCtx.save();
+            startCtx.globalCompositeOperation = 'screen';
+            for (let i = coronaParticles.length - 1; i >= 0; i--) {
+                let p = coronaParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+
+                if (p.life <= 0) {
+                    coronaParticles.splice(i, 1);
+                    continue;
+                }
+
+                let ratio = p.life / p.maxLife;
+                let grad = startCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+                // 模擬太陽高熱火焰顏色層級
+                grad.addColorStop(0, 'rgba(255, 230, 150, ' + ratio + ')');
+                grad.addColorStop(0.2, 'rgba(255, 90, 0, ' + ratio * 0.8 + ')');
+                grad.addColorStop(0.6, 'rgba(200, 0, 0, ' + ratio * 0.4 + ')');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+                startCtx.beginPath();
+                startCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                startCtx.fillStyle = grad;
+                startCtx.fill();
+            }
+            startCtx.restore();
+
+            // 3. 繪製微微旋轉的魔法陣圖像
+            startCtx.save();
+            startCtx.translate(centerX, centerY);
+            circleRotation += 0.003; // 緩慢自轉
+            startCtx.rotate(circleRotation);
+            
+            // 加上核心火焰發光陰影
+            startCtx.shadowBlur = 40;
+            startCtx.shadowColor = '#ff4500';
+
+            try {
+                // 如果圖片加載完成則繪製精細圖像
+                let imgSize = baseRadius * 2.5;
+                startCtx.drawImage(magicCircleImg, -imgSize/2, -imgSize/2, imgSize, imgSize);
+            } catch (e) {
+                // 備用：若網路阻擋圖檔則以幾何發光環代替
+                startCtx.beginPath();
+                startCtx.arc(0, 0, baseRadius, 0, Math.PI * 2);
+                startCtx.strokeStyle = '#ff4500';
+                startCtx.lineWidth = 15;
+                startCtx.stroke();
+            }
+            startCtx.restore();
+
+            requestAnimationFrame(updateStartScreen);
         }
 
-        // 2. 顏色追蹤核心：進一步收緊紅色閾值，降低環境干擾
+        // 觸發遊戲正式開始 (進入相機模式)
+        function startGame() {
+            gameStarted = true;
+            startScreen.style.opacity = 0;
+            setTimeout(() => {
+                startScreen.style.display = 'none';
+                document.getElementById('instruction').style.display = 'block';
+                document.getElementById('scoreboard').style.display = 'block';
+                // 延遲啟動鏡頭權限，確保轉場流暢
+                initTracker();
+            }, 800);
+        }
+
+        // 顏色追蹤核心
         tracking.ColorTracker.registerColor('magic_red', function(r, g, b) {
-            // 收緊綠色與藍色的上限，確保只有極鮮豔的紅色才會被計入
             return (r > 165 && g < 55 && b < 55); 
         });
-
         const tracker = new tracking.ColorTracker(['magic_red']);
-        tracker.setMinDimension(8); // 稍微調小限制，允許魔杖在較遠處也能被辨識
+        tracker.setMinDimension(8);
 
-        tracker.on('track', function(event) {
-            if (isGameOver) {
-                crosshair.hasTracking = false;
-                return;
-            }
-            
-            if (event.data.length === 0) {
-                crosshair.hasTracking = false;
-                return;
-            }
-            
-            // 【核心形狀過濾演算法】
-            let validTarget = null;
+        function initTracker() {
+            const videoConstraints = {
+                audio: false,
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+            };
 
-            // 遍歷所有偵測到的紅色區塊，篩選出形狀最接近「圓形/正方形」的區塊
-            for (let i = 0; i < event.data.length; i++) {
-                let rect = event.data[i];
-                let aspect = rect.width / rect.height;
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia(videoConstraints)
+                    .then(function(stream) {
+                        video.srcObject = stream;
+                        video.play().catch(function(e) { console.log("播放失敗", e); });
+                    }).catch(function(err) {
+                        navigator.mediaDevices.getUserMedia({ video: true })
+                            .then(function(stream) {
+                                video.srcObject = stream;
+                            }).catch(function(e) {
+                                alert("相機啟動失敗，請確認是否給予相機權限。");
+                            });
+                    });
+            }
+
+            tracker.on('track', function(event) {
+                if (isGameOver || event.data.length === 0) {
+                    crosshair.hasTracking = false;
+                    return;
+                }
                 
-                // 篩選條件：寬高比必須在 0.7 到 1.4 之間 (即接近正圓形或正方形)
-                // 並且排除掉面積過大(大於螢幕1/4)的區塊，防止整件衣服被誤認
-                if (aspect > 0.7 && aspect < 1.4 && rect.width < (canvas.width * 0.4)) {
-                    // 如果有多個符合的，優先選擇寬高比最接近 1 (最圓) 的那個
-                    if (!validTarget || Math.abs(1 - aspect) < Math.abs(1 - (validTarget.width / validTarget.height))) {
-                        validTarget = rect;
+                let validTarget = null;
+                for (let i = 0; i < event.data.length; i++) {
+                    let rect = event.data[i];
+                    let aspect = rect.width / rect.height;
+                    
+                    if (aspect > 0.7 && aspect < 1.4 && rect.width < (canvas.width * 0.4)) {
+                        if (!validTarget || Math.abs(1 - aspect) < Math.abs(1 - (validTarget.width / validTarget.height))) {
+                            validTarget = rect;
+                        }
                     }
                 }
-            }
 
-            if (validTarget) {
-                crosshair.hasTracking = true;
-                // 鏡像坐標修正
-                crosshair.x = canvas.width - (validTarget.x + validTarget.width / 2);
-                crosshair.y = validTarget.y + validTarget.height / 2;
-            } else {
-                // 如果畫面上只有不規則的紅色(如衣服條紋)，則不顯示準星
-                crosshair.hasTracking = false;
-            }
-        });
+                if (validTarget) {
+                    crosshair.hasTracking = true;
+                    crosshair.x = canvas.width - (validTarget.x + validTarget.width / 2);
+                    crosshair.y = validTarget.y + validTarget.height / 2;
+                } else {
+                    crosshair.hasTracking = false;
+                }
+            });
 
-        tracking.track('#webcam', tracker);
+            tracking.track('#webcam', tracker);
+            spawnFireball();
+        }
 
         function spawnFireball() {
-            if (isGameOver) return;
+            if (isGameOver || !gameStarted) return;
             fireball.x = canvas.width / 2;
             fireball.y = canvas.height / 2;
             fireball.size = 2;
@@ -213,7 +337,7 @@
         function drawMagicCrosshair(x, y) {
             crosshair.rotation += 0.02;
             let dist = Math.hypot(x - fireball.x, y - fireball.y);
-            if (fireball.active && dist < 100) {
+            if (fireball.active && dist < 100 && fireball.size > 15) {
                 crosshair.targetSize = 25;
                 ctx.strokeStyle = '#ff3333';
             } else {
@@ -241,84 +365,70 @@
             ctx.lineWidth = 1;
             ctx.stroke();
 
-            ctx.beginPath();
-            ctx.moveTo(-r*0.3, 0); ctx.lineTo(-r*0.1, 0);
-            ctx.moveTo(r*0.1, 0);  ctx.lineTo(r*0.3, 0);
-            ctx.moveTo(0, -r*0.3); ctx.lineTo(0, -r*0.1);
-            ctx.moveTo(0, r*0.1);  ctx.lineTo(0, r*0.3);
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
             ctx.restore();
         }
-
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
 
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            for (let i = explosions.length - 1; i >= 0; i--) {
-                let p = explosions[i];
-                p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
-                if (p.alpha <= 0) { explosions.splice(i, 1); continue; }
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fillStyle = p.color; ctx.globalAlpha = p.alpha; ctx.fill();
-            }
-            ctx.globalAlpha = 1.0;
+            if (gameStarted) {
+                for (let i = explosions.length - 1; i >= 0; i--) {
+                    let p = explosions[i];
+                    p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
+                    if (p.alpha <= 0) { explosions.splice(i, 1); continue; }
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.alpha; ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
 
-            if (!isGameOver) {
-                if (!fireball.active) {
-                    spawnFireball();
-                } else {
-                    fireball.x += fireball.speedX;
-                    fireball.y += fireball.speedY;
-                    fireball.size += 0.9;
-                    fireball.speedX *= 1.03;
-                    fireball.speedY *= 1.03;
+                if (!isGameOver) {
+                    if (!fireball.active) {
+                        spawnFireball();
+                    } else {
+                        fireball.x += fireball.speedX;
+                        fireball.y += fireball.speedY;
+                        fireball.size += 0.9;
+                        fireball.speedX *= 1.03;
+                        fireball.speedY *= 1.03;
 
-                    ctx.beginPath();
-                    let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
-                    gradient.addColorStop(0, '#fff');
-                    gradient.addColorStop(0.2, '#ffdd00');
-                    gradient.addColorStop(0.5, '#ff4500');
-                    gradient.addColorStop(1, 'rgba(255,69,0,0)');
-                    ctx.fillStyle = gradient;
-                    ctx.arc(fireball.x, fireball.y, fireball.size, 0, Math.PI * 2);
-                    ctx.fill();
+                        ctx.beginPath();
+                        let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
+                        gradient.addColorStop(0, '#fff');
+                        gradient.addColorStop(0.2, '#ffdd00');
+                        gradient.addColorStop(0.5, '#ff4500');
+                        gradient.addColorStop(1, 'rgba(255,69,0,0)');
+                        ctx.fillStyle = gradient;
+                        ctx.arc(fireball.x, fireball.y, fireball.size, 0, Math.PI * 2);
+                        ctx.fill();
 
-                    if (crosshair.hasTracking) {
-                        let distance = Math.hypot(crosshair.x - fireball.x, crosshair.y - fireball.y);
-                        if (distance < (fireball.size*0.7 + crosshair.currentSize)) {
-                            scoreSuccess++;
-                            document.getElementById('txt-success').innerText = scoreSuccess;
-                            createExplosion(fireball.x, fireball.y);
+                        if (crosshair.hasTracking && fireball.size > 15) {
+                            let distance = Math.hypot(crosshair.x - fireball.x, crosshair.y - fireball.y);
+                            if (distance < (fireball.size*0.7 + crosshair.currentSize)) {
+                                scoreSuccess++;
+                                document.getElementById('txt-success').innerText = scoreSuccess;
+                                createExplosion(fireball.x, fireball.y);
+                                fireball.active = false;
+                            }
+                        }
+
+                        if (fireball.active && fireball.size > 130) {
+                            scoreFailed++;
+                            document.getElementById('txt-failed').innerText = scoreFailed;
+                            document.body.classList.add('shake-effect');
+                            setTimeout(() => document.body.classList.remove('shake-effect'), 400);
+
+                            if (scoreFailed >= 7 && scoreFailed < 10) {
+                                dangerGlowScreen.style.display = 'block';
+                                dangerGlowScreen.classList.add('pulse-effect');
+                            }
+                            if (scoreFailed >= 10) { triggerGameOver(); }
                             fireball.active = false;
                         }
                     }
 
-                    if (fireball.active && fireball.size > 130) {
-                        scoreFailed++;
-                        document.getElementById('txt-failed').innerText = scoreFailed;
-                        document.body.classList.add('shake-effect');
-                        setTimeout(() => document.body.classList.remove('shake-effect'), 400);
-
-                        if (scoreFailed >= 7 && scoreFailed < 10) {
-                            dangerGlowScreen.style.display = 'block';
-                            dangerGlowScreen.classList.add('pulse-effect');
-                        }
-                        if (scoreFailed >= 10) { triggerGameOver(); }
-                        fireball.active = false;
+                    if (crosshair.hasTracking) {
+                        drawMagicCrosshair(crosshair.x, crosshair.y);
                     }
-                }
-
-                if (crosshair.hasTracking) {
-                    drawMagicCrosshair(crosshair.x, crosshair.y);
                 }
             }
             requestAnimationFrame(gameLoop);
@@ -345,6 +455,8 @@
             spawnFireball();
         }
 
+        // 啟動主畫面日冕動畫與遊戲循環
+        updateStartScreen();
         gameLoop();
     </script>
 </body>
