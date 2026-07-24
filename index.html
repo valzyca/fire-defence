@@ -12,7 +12,7 @@
         /* 相機畫面全螢幕背景 */
         #webcam { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; transform: scaleX(-1); }
         
-        /* 遊戲主畫布（渲染火球、盾牌與震動效果） */
+        /* 遊戲主畫布（渲染火球、準星與震動效果） */
         #game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
         
         /* 頂部引進與狀態引導 */
@@ -27,7 +27,7 @@
         #danger-glow-screen {
             display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 3; pointer-events: none;
-            box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.8); /* 內陰影造成邊緣血絲感 */
+            box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.8);
             background-color: rgba(255, 0, 0, 0);
         }
 
@@ -81,13 +81,13 @@
 
     <!-- 提示 UI -->
     <div id="instruction">
-        <strong style="color: #ff4500;">動力魔法學院：火球防禦測試</strong><br>
-        <span style="font-size: 13px;">請用魔杖尖端的<span style="color: #ff3333; font-weight: bold;">紅色物體</span>在空中快速畫圈施法！</span>
+        <strong style="color: #ff4500;">動力魔法學院：主動狙擊測試</strong><br>
+        <span style="font-size: 13px;">用魔杖尖端<span style="color: #ff3333; font-weight: bold;">紅色物體</span>操控魔法準星，精準攔截重疊火球！</span>
     </div>
 
     <!-- 右下角計數器 -->
     <div id="scoreboard">
-        <div>成功擊碎：<span id="txt-success" class="success">0</span> 次</div>
+        <div>成功攔截：<span id="txt-success" class="success">0</span> 次</div>
         <div>防禦失敗：<span id="txt-failed" class="failed">0</span> 次</div>
     </div>
 
@@ -111,8 +111,9 @@
 
         // 遊戲物理機制參數
         let fireball = { x: 0, y: 0, size: 5, speedX: 0, speedY: 0, active: false };
-        let shield = { active: false, timer: 0, radius: 0 };
+        let crosshair = { x: 0, y: 0, rotation: 0, targetSize: 35, currentSize: 35, hasTracking: false };
         let pointsHistory = []; 
+        let explosions = []; // 儲存爆裂粒子
 
         // 初始化畫布尺寸
         function resizeCanvas() {
@@ -122,7 +123,7 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 1. 啟動手機相機鏡頭（優化版前鏡頭機制）
+        // 1. 啟動手機相機鏡頭（終極相容版）
         const videoConstraints = {
             audio: false,
             video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
@@ -152,65 +153,138 @@
         tracker.setMinDimension(10);
 
         tracker.on('track', function(event) {
-            if (isGameOver || event.data.length === 0) return;
-            
-            let maxRect = event.data.sort((a,b) => b.width*b.height - a.width*a.height)[0];
-            let centerX = canvas.width - (maxRect.x + maxRect.width / 2);
-            let centerY = maxRect.y + maxRect.height / 2;
-
-            pointsHistory.push({ x: centerX, y: centerY });
-            if (pointsHistory.length > 15) pointsHistory.shift();
-
-            if (pointsHistory.length >= 10) {
-                let xs = pointsHistory.map(p => p.x);
-                let ys = pointsHistory.map(p => p.y);
-                let minX = Math.min(...xs), maxX = Math.max(...xs);
-                let minY = Math.min(...ys), maxY = Math.max(...ys);
-                let deltaX = maxX - minX;
-                let deltaY = maxY - minY;
-                
-                if (deltaX > 40 && deltaY > 40 && (deltaX / deltaY > 0.5 && deltaX / deltaY < 2.0)) {
-                    triggerShield();
-                    pointsHistory = []; 
-                }
+            if (isGameOver) {
+                crosshair.hasTracking = false;
+                return;
             }
+            
+            if (event.data.length === 0) {
+                crosshair.hasTracking = false;
+                return;
+            }
+            
+            crosshair.hasTracking = true;
+            let maxRect = event.data.sort((a,b) => b.width*b.height - a.width*a.height)[0];
+            
+            // 計算魔杖尖端中心點座標 (鏡像平衡)
+            crosshair.x = canvas.width - (maxRect.x + maxRect.width / 2);
+            crosshair.y = maxRect.y + maxRect.height / 2;
         });
 
         tracking.track('#webcam', tracker);
-
-        function triggerShield() {
-            if (!shield.active && !isGameOver) {
-                shield.active = true;
-                shield.radius = 10;
-                shield.timer = 40; 
-            }
-        }
 
         function spawnFireball() {
             if (isGameOver) return;
             fireball.x = canvas.width / 2;
             fireball.y = canvas.height / 2;
             fireball.size = 2;
+            
+            // 隨機角度射向四方
             let angle = Math.random() * Math.PI * 2;
             fireball.speedX = Math.cos(angle) * 3;
             fireball.speedY = Math.sin(angle) * 3;
             fireball.active = true;
         }
 
+        // 產生碎裂粒子
+        function createExplosion(x, y) {
+            for (let i = 0; i < 20; i++) {
+                explosions.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    size: Math.random() * 6 + 3,
+                    alpha: 1,
+                    color: `hsl(${Math.random() * 30 + 15}, 100%, 60%)` // 火花焰色
+                });
+            }
+        }
+
+        // 繪製動態魔法陣準星 (射擊遊戲風格)
+        function drawMagicCrosshair(x, y) {
+            crosshair.rotation += 0.02; // 讓魔法陣不斷自轉
+            
+            // 準星與火球接近時，產生動態縮放回饋效果
+            let dist = Math.hypot(x - fireball.x, y - fireball.y);
+            if (fireball.active && dist < 100) {
+                crosshair.targetSize = 25; // 接近時內縮鎖定
+                ctx.strokeStyle = '#ff3333';
+            } else {
+                crosshair.targetSize = 35;
+                ctx.strokeStyle = '#00d2ff';
+            }
+            crosshair.currentSize += (crosshair.targetSize - crosshair.currentSize) * 0.2;
+            
+            let r = crosshair.currentSize;
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(crosshair.rotation);
+
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = ctx.strokeStyle;
+
+            // 1. 外圈虛線環
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.setLineDash([6, 6]);
+            ctx.stroke();
+
+            // 2. 內圈幾何正方形 (模擬行星結構感)
+            ctx.beginPath();
+            ctx.rect(-r*0.6, -r*0.6, r*1.2, r*1.2);
+            ctx.setLineDash([]);
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 3. 中心十字瞄準線
+            ctx.beginPath();
+            ctx.moveTo(-r*0.3, 0); ctx.lineTo(-r*0.1, 0);
+            ctx.moveTo(r*0.1, 0);  ctx.lineTo(r*0.3, 0);
+            ctx.moveTo(0, -r*0.3); ctx.lineTo(0, -r*0.1);
+            ctx.moveTo(0, r*0.1);  ctx.lineTo(0, r*0.3);
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
         // 3. 遊戲主迴圈
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 渲染爆炸粒子
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                let p = explosions[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.03;
+                if (p.alpha <= 0) {
+                    explosions.splice(i, 1);
+                    continue;
+                }
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.alpha;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0; // 還原透明度
 
             if (!isGameOver) {
                 if (!fireball.active) {
                     spawnFireball();
                 } else {
+                    // 火球物理運動
                     fireball.x += fireball.speedX;
                     fireball.y += fireball.speedY;
                     fireball.size += 0.9; 
                     fireball.speedX *= 1.03;
                     fireball.speedY *= 1.03;
 
+                    // 繪製火球
                     ctx.beginPath();
                     let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
                     gradient.addColorStop(0, '#fff');
@@ -221,58 +295,46 @@
                     ctx.arc(fireball.x, fireball.y, fireball.size, 0, Math.PI * 2);
                     ctx.fill();
 
-                    if (fireball.size > 120) {
-                        if (shield.active) {
+                    // 【核心新機制】：即時碰撞判定（準星與火球重疊）
+                    if (crosshair.hasTracking) {
+                        // 計算準星中心與火球中心的距離
+                        let distance = Math.hypot(crosshair.x - fireball.x, crosshair.y - fireball.y);
+                        // 當距離小於火球半徑＋準星半徑時，判定為成功重疊攔截
+                        if (distance < (fireball.size*0.7 + crosshair.currentSize)) {
                             scoreSuccess++;
                             document.getElementById('txt-success').innerText = scoreSuccess;
-                        } else {
-                            scoreFailed++;
-                            document.getElementById('txt-failed').innerText = scoreFailed;
-                            
-                            // 畫面震動
-                            document.body.classList.add('shake-effect');
-                            setTimeout(() => document.body.classList.remove('shake-effect'), 400);
+                            createExplosion(fireball.x, fireball.y); // 即刻觸發裂解粒子
+                            fireball.active = false;
+                        }
+                    }
 
-                            // 核心判定：當防禦失敗達到 7 次，開啟全螢幕紅色呼吸警告
-                            if (scoreFailed >= 7 && scoreFailed < 10) {
-                                dangerGlowScreen.style.display = 'block';
-                                dangerGlowScreen.classList.add('pulse-effect');
-                            }
+                    // 漏接判定：火球飛出螢幕外玩家受傷
+                    if (fireball.active && fireball.size > 130) {
+                        scoreFailed++;
+                        document.getElementById('txt-failed').innerText = scoreFailed;
+                        
+                        // 畫面震動
+                        document.body.classList.add('shake-effect');
+                        setTimeout(() => document.body.classList.remove('shake-effect'), 400);
 
-                            // 檢查是否觸發失敗退出機制 (10次)
-                            if (scoreFailed >= 10) {
-                                triggerGameOver();
-                            }
+                        // 7次血量警告：紅色呼吸燈
+                        if (scoreFailed >= 7 && scoreFailed < 10) {
+                            dangerGlowScreen.style.display = 'block';
+                            dangerGlowScreen.classList.add('pulse-effect');
+                        }
+
+                        // 10次失敗退出
+                        if (scoreFailed >= 10) {
+                            triggerGameOver();
                         }
                         fireball.active = false;
                     }
                 }
-            }
 
-            // 繪製盾牌
-            if (shield.active && !isGameOver) {
-                shield.timer--;
-                if (shield.radius < 140) shield.radius += 15;
-
-                ctx.beginPath();
-                ctx.arc(canvas.width / 2, canvas.height / 2, shield.radius, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(0, 210, 255, ${shield.timer / 40})`;
-                ctx.lineWidth = 12;
-                ctx.shadowBlur = 25;
-                ctx.shadowColor = '#00d2ff';
-                ctx.stroke();
-                ctx.shadowBlur = 0;
-
-                if (shield.timer <= 0) shield.active = false;
-            }
-
-            // 顯示紅色追蹤光點位置
-            if (pointsHistory.length > 0 && !isGameOver) {
-                let lastPt = pointsHistory[pointsHistory.length - 1];
-                ctx.beginPath();
-                ctx.arc(lastPt.x, lastPt.y, 8, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.6)';
-                ctx.fill();
+                // 繪製動態魔法準星
+                if (crosshair.hasTracking) {
+                    drawMagicCrosshair(crosshair.x, crosshair.y);
+                }
             }
 
             requestAnimationFrame(gameLoop);
@@ -282,8 +344,7 @@
         function triggerGameOver() {
             isGameOver = true;
             fireball.active = false;
-            shield.active = false;
-            dangerGlowScreen.style.display = 'none'; // 隱藏呼吸層
+            dangerGlowScreen.style.display = 'none';
             dangerGlowScreen.classList.remove('pulse-effect');
             gameOverScreen.style.display = 'flex'; 
         }
@@ -295,10 +356,10 @@
             isGameOver = false;
             document.getElementById('txt-success').innerText = "0";
             document.getElementById('txt-failed').innerText = "0";
-            dangerGlowScreen.style.display = 'none'; // 隱藏並清空呼吸狀態
+            dangerGlowScreen.style.display = 'none';
             dangerGlowScreen.classList.remove('pulse-effect');
             gameOverScreen.style.display = 'none';
-            pointsHistory = [];
+            explosions = [];
             spawnFireball();
         }
 
