@@ -143,6 +143,8 @@
         let countdownNumber = 3;
 
         let fireball = { x: 0, y: 0, size: 5, speedX: 0, speedY: 0, active: false };
+        
+        // 核心修正：初始準心座標緩衝
         let crosshair = { x: 0, y: 0, targetX: 0, targetY: 0, rotation: 0, targetSize: 35, currentSize: 35, hasTracking: false };
         let explosions = []; 
         let coronaParticles = [];
@@ -206,7 +208,7 @@
             startCtx.save();
             startCtx.globalAlpha = ritualOpacity;
 
-            // 【終極效能解放 1】：在最重要的畫符階段，直接停止背景粒子的運算，釋放全部算力給相機追蹤
+            // 畫符階段完全關閉背景火焰粒子，保障 CPU 影像矩陣算力
             if (gameState === 'cover' || gameState === 'success_anim') {
                 if (coronaParticles.length < 120) {
                     let angle = Math.random() * Math.PI * 2;
@@ -257,11 +259,25 @@
                 }
                 startCtx.restore();
 
-                // 物理多層次發光霓虹軌跡
+                // 【物理流暢補間】：畫符階段強制讓渲染座標通過插值平滑移動，杜絕瞬移折線
+                crosshair.x += (crosshair.targetX - crosshair.x) * 0.40;
+                crosshair.y += (crosshair.targetY - crosshair.y) * 0.40;
+
+                // 即時記錄平滑後的軌跡點
+                if (crosshair.hasTracking) {
+                    let lastPoint = wandTrail[wandTrail.length - 1];
+                    let distanceMoved = lastPoint ? Math.hypot(crosshair.x - lastPoint.x, crosshair.y - lastPoint.y) : 999;
+                    if (distanceMoved > 4) {
+                        wandTrail.push({ x: crosshair.x, y: crosshair.y });
+                        if (wandTrail.length > 30) wandTrail.shift();
+                    }
+                }
+
+                // 物理流暢霓虹軌跡渲染
                 if (wandTrail.length > 1) {
                     startCtx.save();
-                    startCtx.strokeStyle = 'rgba(0, 210, 255, 0.3)';
-                    startCtx.lineWidth = 8;
+                    startCtx.strokeStyle = 'rgba(0, 210, 255, 0.35)';
+                    startCtx.lineWidth = 7;
                     startCtx.lineCap = 'round';
                     startCtx.lineJoin = 'round';
                     startCtx.beginPath();
@@ -270,7 +286,7 @@
                     startCtx.stroke();
                     
                     startCtx.strokeStyle = '#ffffff';
-                    startCtx.lineWidth = 3;
+                    startCtx.lineWidth = 2.5;
                     startCtx.beginPath();
                     startCtx.moveTo(wandTrail[0].x, wandTrail[0].y);
                     for(let k=1; k<wandTrail.length; k++) startCtx.lineTo(wandTrail[k].x, wandTrail[k].y);
@@ -278,7 +294,18 @@
                     startCtx.restore();
                 }
 
-                // 五芒星互動點
+                // 五芒星互動點碰撞檢測 (基於平滑插值後的 crosshair.x/y)
+                let targetPt = pentagramPoints[nextRequiredPoint];
+                if (targetPt && crosshair.hasTracking) {
+                    let distToPoint = Math.hypot(crosshair.x - targetPt.x, crosshair.y - targetPt.y);
+                    if (distToPoint < 35) { 
+                        targetPt.activated = true;
+                        nextRequiredPoint++; 
+                        if (nextRequiredPoint >= 5) gameState = 'success_anim'; 
+                    }
+                }
+
+                // 繪製五芒星點
                 pentagramPoints.forEach((pt, index) => {
                     startCtx.save();
                     let isCurrent = (index === nextRequiredPoint);
@@ -357,7 +384,6 @@
 
         function clickToCastPrepare() {
             if (gameState !== 'cover') return;
-            // 點擊瞬間再次校正視窗，防範不當拉伸
             resizeCanvases();
             gameState = 'drawing';
             startScreen.style.cursor = 'default';
@@ -397,14 +423,13 @@
             return (r > 165 && g < 55 && b < 55); 
         });
         const tracker = new tracking.ColorTracker(['magic_red']);
-        tracker.setMinDimension(6); // 降低感應維度至 6，降低單點辨識難度
+        tracker.setMinDimension(6); 
 
         let trackerInitialized = false;
         function initTracker() {
             if (trackerInitialized) return;
             trackerInitialized = true;
 
-            // 【終極效能解放 2】：相機圖像矩陣大瘦身，將解析度腰斬為 320x240，直接砍掉 75% 的硬體計算負擔！
             const videoConstraints = {
                 audio: false,
                 video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }
@@ -420,14 +445,10 @@
                     });
             }
 
-            let lastPushTime = 0;
-            let processThrottle = 0;
+            // 【核心重磅減重】：修改掃描步進，讓追蹤器每隔 4 個像素進行一次跳躍抽樣，直接斬斷硬體影像計算負擔！
+            tracker.setStep(4);
 
             tracker.on('track', function(event) {
-                // 【終極效能解放 3】：影格節流閥，畫符階段每隔一影格才執行一次矩陣計算，防範手機 CPU 瞬間打滿
-                processThrottle++;
-                if (gameState === 'drawing' && processThrottle % 2 !== 0) return;
-
                 if (isGameOver || event.data.length === 0) {
                     crosshair.hasTracking = false;
                     return;
@@ -446,34 +467,9 @@
 
                 if (validTarget) {
                     crosshair.hasTracking = true;
+                    // 將目標座標平穩傳入緩衝器，交由 updateStartScreen 內的插值公式做平滑過渡
                     crosshair.targetX = canvas.width - (validTarget.x + validTarget.width / 2);
                     crosshair.targetY = validTarget.y + validTarget.height / 2;
-
-                    if (gameState === 'drawing') {
-                        let now = Date.now();
-                        let lastPoint = wandTrail[wandTrail.length - 1];
-                        let distanceMoved = lastPoint ? Math.hypot(crosshair.targetX - lastPoint.x, crosshair.targetY - lastPoint.y) : 999;
-
-                        // 限制寫入頻率與長度
-                        if (now - lastPushTime > 45 || distanceMoved > 8) {
-                            wandTrail.push({ x: crosshair.targetX, y: crosshair.targetY });
-                            if (wandTrail.length > 18) wandTrail.shift(); 
-                            lastPushTime = now;
-                        }
-
-                        // 檢查魔杖端點是否碰觸到互動點
-                        let targetPt = pentagramPoints[nextRequiredPoint];
-                        let distToPoint = Math.hypot(crosshair.targetX - targetPt.x, crosshair.targetY - targetPt.y);
-                        
-                        if (distToPoint < 35) { 
-                            targetPt.activated = true;
-                            nextRequiredPoint++; 
-
-                            if (nextRequiredPoint >= 5) {
-                                gameState = 'success_anim'; 
-                            }
-                        }
-                    }
                 } else {
                     crosshair.hasTracking = false;
                 }
@@ -526,10 +522,11 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (gameStarted || gameState === 'drawing' || gameState === 'success_anim' || gameState === 'countdown') {
-                crosshair.x += (crosshair.targetX - crosshair.x) * 0.45;
-                crosshair.y += (crosshair.targetY - crosshair.y) * 0.45;
-
+                // 遊戲對戰階段的平滑插值保持不變
                 if (gameState === 'playing') {
+                    crosshair.x += (crosshair.targetX - crosshair.x) * 0.45;
+                    crosshair.y += (crosshair.targetY - crosshair.y) * 0.45;
+
                     for (let i = 0; i < explosions.length; i++) {
                         let p = explosions[i]; p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
                         if (p.alpha <= 0) { explosions.splice(i, 1); i--; continue; }
