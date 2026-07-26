@@ -25,7 +25,7 @@
         #start-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             background-color: #000; display: flex; flex-direction: column; justify-content: center; align-items: center;
-            cursor: pointer; transition: opacity 0.5s ease;
+            transition: opacity 0.5s ease;
         }
         #start-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 11; }
         
@@ -86,7 +86,7 @@
 <body>
 
     <!-- 初始主畫面 -->
-    <div id="start-screen" onclick="clickToCastPrepare()">
+    <div id="start-screen">
         <canvas id="start-canvas"></canvas>
         <div id="start-ui">
             <div id="start-prompt">─ 點擊螢幕 喚醒魔杖 ─</div>
@@ -107,8 +107,8 @@
 
     <!-- 提示 UI -->
     <div id="instruction">
-        <strong id="ritual-title" style="color: #ffd700;">魔杖結界儀式：揮動魔杖畫出五芒星</strong><br>
-        <span id="ritual-desc" style="font-size: 13px;">請操控魔杖準心，依序劃過圓圈中的五個藍色法陣頂點！</span>
+        <strong id="ritual-title" style="color: #ffd700;">結界啟動中...</strong><br>
+        <span id="ritual-desc" style="font-size: 13px;">請用手指在圓圈內依序滑過藍色發光點，一筆畫畫出五芒星！</span>
     </div>
 
     <!-- 右下角計數器 -->
@@ -143,8 +143,6 @@
         let countdownNumber = 3;
 
         let fireball = { x: 0, y: 0, size: 5, speedX: 0, speedY: 0, active: false };
-        
-        // 核心修正：初始準心座標緩衝
         let crosshair = { x: 0, y: 0, targetX: 0, targetY: 0, rotation: 0, targetSize: 35, currentSize: 35, hasTracking: false };
         let explosions = []; 
         let coronaParticles = [];
@@ -193,6 +191,49 @@
         }
         generatePentagramPoints();
 
+        // 【極致流暢優化】：手指觸控滑動核心處理器 (0延遲，免相機運算)
+        function handleTouchMove(e) {
+            if (gameState !== 'drawing') return;
+            e.preventDefault();
+            
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            // 記錄手指劃過線段
+            wandTrail.push({ x: clientX, y: clientY });
+            if (wandTrail.length > 30) wandTrail.shift();
+
+            // 檢測是否依序摸到發光點
+            let targetPt = pentagramPoints[nextRequiredPoint];
+            if (targetPt) {
+                let dist = Math.hypot(clientX - targetPt.x, clientY - targetPt.y);
+                if (dist < 40) { // 觸控判定半徑大一點，體驗更好
+                    targetPt.activated = true;
+                    nextRequiredPoint++;
+                    if (nextRequiredPoint >= 5) {
+                        gameState = 'success_anim';
+                    }
+                }
+            }
+        }
+
+        // 綁定觸控與滑鼠事件至封面層
+        startScreen.addEventListener('mousedown', (e) => {
+            if(gameState === 'cover') { gameState = 'drawing'; document.getElementById('start-prompt').style.display = 'none'; document.getElementById('instruction').style.display = 'block'; }
+        });
+        startScreen.addEventListener('mousemove', handleTouchMove);
+        
+        startScreen.addEventListener('touchstart', (e) => {
+            if(gameState === 'cover') { gameState = 'drawing'; document.getElementById('start-prompt').style.display = 'none'; document.getElementById('instruction').style.display = 'block'; }
+        }, { passive: false });
+        startScreen.addEventListener('touchmove', handleTouchMove, { passive: false });
+
         function updateStartScreen() {
             if (gameStarted && gameState === 'playing') return;
             
@@ -208,7 +249,7 @@
             startCtx.save();
             startCtx.globalAlpha = ritualOpacity;
 
-            // 畫符階段完全關閉背景火焰粒子，保障 CPU 影像矩陣算力
+            // 畫符階段完全關閉火焰粒子，保證觸控網頁最高幀率
             if (gameState === 'cover' || gameState === 'success_anim') {
                 if (coronaParticles.length < 120) {
                     let angle = Math.random() * Math.PI * 2;
@@ -259,25 +300,11 @@
                 }
                 startCtx.restore();
 
-                // 【物理流暢補間】：畫符階段強制讓渲染座標通過插值平滑移動，杜絕瞬移折線
-                crosshair.x += (crosshair.targetX - crosshair.x) * 0.40;
-                crosshair.y += (crosshair.targetY - crosshair.y) * 0.40;
-
-                // 即時記錄平滑後的軌跡點
-                if (crosshair.hasTracking) {
-                    let lastPoint = wandTrail[wandTrail.length - 1];
-                    let distanceMoved = lastPoint ? Math.hypot(crosshair.x - lastPoint.x, crosshair.y - lastPoint.y) : 999;
-                    if (distanceMoved > 4) {
-                        wandTrail.push({ x: crosshair.x, y: crosshair.y });
-                        if (wandTrail.length > 30) wandTrail.shift();
-                    }
-                }
-
-                // 物理流暢霓虹軌跡渲染
+                // 渲染手指劃過的霓虹軌跡線
                 if (wandTrail.length > 1) {
                     startCtx.save();
-                    startCtx.strokeStyle = 'rgba(0, 210, 255, 0.35)';
-                    startCtx.lineWidth = 7;
+                    startCtx.strokeStyle = 'rgba(0, 210, 255, 0.4)';
+                    startCtx.lineWidth = 8;
                     startCtx.lineCap = 'round';
                     startCtx.lineJoin = 'round';
                     startCtx.beginPath();
@@ -286,23 +313,12 @@
                     startCtx.stroke();
                     
                     startCtx.strokeStyle = '#ffffff';
-                    startCtx.lineWidth = 2.5;
+                    startCtx.lineWidth = 3;
                     startCtx.beginPath();
                     startCtx.moveTo(wandTrail[0].x, wandTrail[0].y);
                     for(let k=1; k<wandTrail.length; k++) startCtx.lineTo(wandTrail[k].x, wandTrail[k].y);
                     startCtx.stroke();
                     startCtx.restore();
-                }
-
-                // 五芒星互動點碰撞檢測 (基於平滑插值後的 crosshair.x/y)
-                let targetPt = pentagramPoints[nextRequiredPoint];
-                if (targetPt && crosshair.hasTracking) {
-                    let distToPoint = Math.hypot(crosshair.x - targetPt.x, crosshair.y - targetPt.y);
-                    if (distToPoint < 35) { 
-                        targetPt.activated = true;
-                        nextRequiredPoint++; 
-                        if (nextRequiredPoint >= 5) gameState = 'success_anim'; 
-                    }
                 }
 
                 // 繪製五芒星點
@@ -382,16 +398,6 @@
             requestAnimationFrame(updateStartScreen);
         }
 
-        function clickToCastPrepare() {
-            if (gameState !== 'cover') return;
-            resizeCanvases();
-            gameState = 'drawing';
-            startScreen.style.cursor = 'default';
-            document.getElementById('start-prompt').style.display = 'none'; 
-            document.getElementById('instruction').style.display = 'block'; 
-            initTracker(); 
-        }
-
         function triggerCountdown() {
             gameState = 'countdown';
             countdownOverlay.style.display = 'block';
@@ -399,6 +405,9 @@
             document.getElementById('ritual-title').style.color = "#00d2ff";
             document.getElementById('ritual-desc').innerText = "注意防禦！火球即將發射！";
             
+            // 此時才在背景無痕初始化相機顏色追蹤，完全錯開效能高峰！
+            initTracker();
+
             let timer = setInterval(() => {
                 countdownNumber--;
                 if (countdownNumber > 0) {
@@ -418,12 +427,12 @@
             }, 1000);
         }
 
-        // 顏色追蹤核心
+        // 顏色追蹤核心 (只在對戰階段啟動，此時畫面沒有複雜UI，極度絲滑)
         tracking.ColorTracker.registerColor('magic_red', function(r, g, b) {
             return (r > 165 && g < 55 && b < 55); 
         });
         const tracker = new tracking.ColorTracker(['magic_red']);
-        tracker.setMinDimension(6); 
+        tracker.setMinDimension(7); 
 
         let trackerInitialized = false;
         function initTracker() {
@@ -432,7 +441,7 @@
 
             const videoConstraints = {
                 audio: false,
-                video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }
+                video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 } }
             };
 
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -445,11 +454,8 @@
                     });
             }
 
-            // 【核心重磅減重】：修改掃描步進，讓追蹤器每隔 4 個像素進行一次跳躍抽樣，直接斬斷硬體影像計算負擔！
-            tracker.setStep(4);
-
             tracker.on('track', function(event) {
-                if (isGameOver || event.data.length === 0) {
+                if (isGameOver || event.data.length === 0 || gameState !== 'playing') {
                     crosshair.hasTracking = false;
                     return;
                 }
@@ -467,7 +473,6 @@
 
                 if (validTarget) {
                     crosshair.hasTracking = true;
-                    // 將目標座標平穩傳入緩衝器，交由 updateStartScreen 內的插值公式做平滑過渡
                     crosshair.targetX = canvas.width - (validTarget.x + validTarget.width / 2);
                     crosshair.targetY = validTarget.y + validTarget.height / 2;
                 } else {
@@ -521,54 +526,51 @@
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (gameStarted || gameState === 'drawing' || gameState === 'success_anim' || gameState === 'countdown') {
-                // 遊戲對戰階段的平滑插值保持不變
-                if (gameState === 'playing') {
-                    crosshair.x += (crosshair.targetX - crosshair.x) * 0.45;
-                    crosshair.y += (crosshair.targetY - crosshair.y) * 0.45;
+            if (gameStarted && gameState === 'playing') {
+                crosshair.x += (crosshair.targetX - crosshair.x) * 0.45;
+                crosshair.y += (crosshair.targetY - crosshair.y) * 0.45;
 
-                    for (let i = 0; i < explosions.length; i++) {
-                        let p = explosions[i]; p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
-                        if (p.alpha <= 0) { explosions.splice(i, 1); i--; continue; }
-                        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                        ctx.fillStyle = p.color; ctx.globalAlpha = p.alpha; ctx.fill();
-                    }
-                    ctx.globalAlpha = 1.0;
+                for (let i = 0; i < explosions.length; i++) {
+                    let p = explosions[i]; p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
+                    if (p.alpha <= 0) { explosions.splice(i, 1); i--; continue; }
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.alpha; ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
 
-                    if (!isGameOver) {
-                        if (!fireball.active) {
-                            spawnFireball();
-                        } else {
-                            fireball.x += fireball.speedX; fireball.y += fireball.speedY;
-                            fireball.size += 0.9; fireball.speedX *= 1.03; fireball.speedY *= 1.03;
+                if (!isGameOver) {
+                    if (!fireball.active) {
+                        spawnFireball();
+                    } else {
+                        fireball.x += fireball.speedX; fireball.y += fireball.speedY;
+                        fireball.size += 0.9; fireball.speedX *= 1.03; fireball.speedY *= 1.03;
 
-                            ctx.beginPath();
-                            let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
-                            gradient.addColorStop(0, '#fff'); gradient.addColorStop(0.2, '#ffdd00'); gradient.addColorStop(0.5, '#ff4500'); gradient.addColorStop(1, 'rgba(255,69,0,0)');
-                            ctx.fillStyle = gradient; ctx.arc(fireball.x, fireball.y, fireball.size, 0, Math.PI * 2); ctx.fill();
+                        ctx.beginPath();
+                        let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
+                        gradient.addColorStop(0, '#fff'); gradient.addColorStop(0.2, '#ffdd00'); gradient.addColorStop(0.5, '#ff4500'); gradient.addColorStop(1, 'rgba(255,69,0,0)');
+                        ctx.fillStyle = gradient; ctx.arc(fireball.x, fireball.y, fireball.size, 0, Math.PI * 2); ctx.fill();
 
-                            if (crosshair.hasTracking && fireball.size > 15) {
-                                let distance = Math.hypot(crosshair.x - fireball.x, crosshair.y - fireball.y);
-                                if (distance < (fireball.size*0.7 + crosshair.currentSize)) {
-                                    scoreSuccess++;
-                                    document.getElementById('txt-success').innerText = scoreSuccess;
-                                    createExplosion(fireball.x, fireball.y);
-                                    fireball.active = false;
-                                }
-                            }
-
-                            if (fireball.active && fireball.size > 130) {
-                                scoreFailed++;
-                                document.getElementById('txt-failed').innerText = scoreFailed;
-                                document.body.classList.add('shake-effect');
-                                setTimeout(() => document.body.classList.remove('shake-effect'), 400);
-
-                                if (scoreFailed >= 7 && scoreFailed < 10) {
-                                    dangerGlowScreen.style.display = 'block'; dangerGlowScreen.classList.add('pulse-effect');
-                                }
-                                if (scoreFailed >= 10) { triggerGameOver(); }
+                        if (crosshair.hasTracking && fireball.size > 15) {
+                            let distance = Math.hypot(crosshair.x - fireball.x, crosshair.y - fireball.y);
+                            if (distance < (fireball.size*0.7 + crosshair.currentSize)) {
+                                scoreSuccess++;
+                                document.getElementById('txt-success').innerText = scoreSuccess;
+                                createExplosion(fireball.x, fireball.y);
                                 fireball.active = false;
                             }
+                        }
+
+                        if (fireball.active && fireball.size > 130) {
+                            scoreFailed++;
+                            document.getElementById('txt-failed').innerText = scoreFailed;
+                            document.body.classList.add('shake-effect');
+                            setTimeout(() => document.body.classList.remove('shake-effect'), 400);
+
+                            if (scoreFailed >= 7 && scoreFailed < 10) {
+                                dangerGlowScreen.style.display = 'block'; dangerGlowScreen.classList.add('pulse-effect');
+                            }
+                            if (scoreFailed >= 10) { triggerGameOver(); }
+                            fireball.active = false;
                         }
                     }
                 }
@@ -612,7 +614,6 @@
             gameState = 'cover';
             startScreen.style.opacity = "1";
             startScreen.style.display = 'flex';
-            startScreen.style.cursor = 'pointer';
             document.getElementById('start-prompt').style.display = 'block';
             document.getElementById('instruction').style.display = 'none';
             document.getElementById('scoreboard').style.display = 'none';
