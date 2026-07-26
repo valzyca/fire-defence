@@ -29,11 +29,22 @@
         }
         #start-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 11; }
         
-        /* 移除原本的 HTML 字體層，全面改由 Canvas 繪製以防被快取吃掉顏色 */
         #start-ui { position: relative; z-index: 12; text-align: center; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; }
-        #start-prompt { font-size: 16px; color: #ffffff; -webkit-text-stroke: 0.5px #000; text-shadow: 0 0 10px #ff8c00; animation: pulseGlow 2s infinite ease-in-out; margin-top: 260px; font-weight: bold; letter-spacing: 3px; }
+        
+        /* 【副標題修正】：完全移除黑邊（text-stroke），改用純粹的發光橙色陰影增加可讀性 */
+        #start-prompt { 
+            font-size: 16px; 
+            color: #ffd700; 
+            -webkit-text-stroke: 0px transparent !important; 
+            text-stroke: 0px transparent !important; 
+            text-shadow: 0 0 8px #ff4500, 0 0 15px #ff0000; 
+            animation: pulseGlow 2s infinite ease-in-out; 
+            margin-top: 260px; 
+            font-weight: bold; 
+            letter-spacing: 3px; 
+        }
 
-        @keyframes pulseGlow { 0%, 100% { opacity: 0.5; transform: scale(0.97); } 50% { opacity: 1; transform: scale(1.03); } }
+        @keyframes pulseGlow { 0%, 100% { opacity: 0.6; transform: scale(0.97); } 50% { opacity: 1; transform: scale(1.03); } }
 
         /* 頂部引進與狀態引導 */
         #instruction { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 3; background: rgba(0,0,0,0.75); color: #fff; padding: 12px 24px; border-radius: 30px; border: 1px solid #ff4500; text-align: center; box-shadow: 0 0 15px rgba(255, 69, 0, 0.4); display: none; }
@@ -89,7 +100,6 @@
     <div id="start-screen" onclick="startGame()">
         <canvas id="start-canvas"></canvas>
         <div id="start-ui">
-            <!-- 提示字往下拉，中央騰出空間交給畫筆繪製黃字黑邊 -->
             <div id="start-prompt">─ 點擊螢幕 喚醒魔杖 ─</div>
         </div>
     </div>
@@ -144,7 +154,6 @@
         let magicCircleImg = new Image();
         let circleRotation = 0;
 
-        // 讀取上傳至根目錄下的全新 bg.png 高清魔法陣圖像
         magicCircleImg.src = "bg.png"; 
 
         function resizeCanvases() {
@@ -156,7 +165,6 @@
         window.addEventListener('resize', resizeCanvases);
         resizeCanvases();
 
-        // 太陽日冕火焰粒子與魔法陣自轉更新機制
         function updateStartScreen() {
             if (gameStarted) return;
             startCtx.fillStyle = '#000000';
@@ -166,7 +174,6 @@
             let centerY = startCanvas.height / 2;
             let baseRadius = Math.min(startCanvas.width, startCanvas.height) * 0.35;
 
-            // 1. 生成大面積日冕日珥火焰粒子
             if (coronaParticles.length < 220) {
                 let angle = Math.random() * Math.PI * 2;
                 let speed = Math.random() * 3 + 2.5; 
@@ -181,7 +188,6 @@
                 });
             }
 
-            // 2. 渲染高溫混色日冕火焰
             startCtx.save();
             startCtx.globalCompositeOperation = 'screen';
             for (let i = coronaParticles.length - 1; i >= 0; i--) {
@@ -203,7 +209,6 @@
             }
             startCtx.restore();
 
-            // 3. 繪製微微旋轉的魔法陣圖像（完美正圓形公式）
             startCtx.save();
             startCtx.translate(centerX, centerY);
             circleRotation += 0.004; 
@@ -218,28 +223,25 @@
             }
             startCtx.restore();
 
-            // 【核心驚天修正】：跳過 HTML 解析器，直接用 Canvas 畫筆強制畫上黃字黑邊與金色外發光！
+            // Canvas 畫筆精準繪製區
             startCtx.save();
-            // 徹底切斷並洗掉前方的橘紅色陰影污染，重設乾淨的發光屬性
-            startCtx.shadowBlur = 20;
-            startCtx.shadowColor = 'rgba(255, 204, 0, 0.7)'; 
+            startCtx.shadowBlur = 15;
+            startCtx.shadowColor = 'rgba(255, 204, 0, 0.5)'; 
             
-            // 使用導入的古老魔法書字體
             startCtx.font = "bold 34px 'Cinzel Decorative', Georgia, serif";
             startCtx.textAlign = "center";
             startCtx.textBaseline = "middle";
             startCtx.letterSpacing = "2px";
 
-            let textY1 = centerY + 160; // 第一行位置
-            let textY2 = centerY + 205; // 第二行位置
+            let textY1 = centerY + 160; 
+            let textY2 = centerY + 205; 
 
-            // A. 強制繪製超厚實的 5 像素純黑描邊邊框 (先畫在外圍作保護色)
-            startCtx.lineWidth = 5;
+            // 【主標題微調】：lineWidth 改為 2 像素，讓黑色邊框變得精緻內斂
+            startCtx.lineWidth = 2;
             startCtx.strokeStyle = "#000000";
             startCtx.strokeText("KINETIC SORCERY", centerX, textY1);
             startCtx.strokeText("ACADEMY", centerX, textY2);
 
-            // B. 在黑色描邊正中心，強制灌入飽和的「魔法黃色」像素
             startCtx.fillStyle = "#ffcc00";
             startCtx.fillText("KINETIC SORCERY", centerX, textY1);
             startCtx.fillText("ACADEMY", centerX, textY2);
@@ -249,7 +251,6 @@
             requestAnimationFrame(updateStartScreen);
         }
 
-        // 啟動遊戲
         function startGame() {
             gameStarted = true;
             startScreen.style.opacity = 0;
