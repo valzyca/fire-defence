@@ -31,15 +31,15 @@
         
         #start-ui { position: relative; z-index: 12; text-align: center; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; }
         
-        /* 【副標題修正】：完全移除黑邊（text-stroke），改用純粹的發光橙色陰影增加可讀性 */
+        /* 【副標題排版優化】：移至主標題下方，並通過 margin-top 精確下移，徹底與魔法陣拉開空間 */
         #start-prompt { 
-            font-size: 16px; 
+            font-size: 15px; 
             color: #ffd700; 
             -webkit-text-stroke: 0px transparent !important; 
             text-stroke: 0px transparent !important; 
             text-shadow: 0 0 8px #ff4500, 0 0 15px #ff0000; 
             animation: pulseGlow 2s infinite ease-in-out; 
-            margin-top: 260px; 
+            margin-top: 310px; /* 大幅向下移，落在主標題的下方處 */
             font-weight: bold; 
             letter-spacing: 3px; 
         }
@@ -100,6 +100,7 @@
     <div id="start-screen" onclick="startGame()">
         <canvas id="start-canvas"></canvas>
         <div id="start-ui">
+            <!-- 調整順序：讓副標提示出現在主標題正下方 -->
             <div id="start-prompt">─ 點擊螢幕 喚醒魔杖 ─</div>
         </div>
     </div>
@@ -172,14 +173,18 @@
 
             let centerX = startCanvas.width / 2;
             let centerY = startCanvas.height / 2;
+            
+            // 微微微調畫布魔法陣中軸心，讓其維持在偏中上方的完美黃金分割點
+            let circleCenterY = centerY - 30;
             let baseRadius = Math.min(startCanvas.width, startCanvas.height) * 0.35;
 
+            // 1. 生成大面積日冕日珥火焰粒子
             if (coronaParticles.length < 220) {
                 let angle = Math.random() * Math.PI * 2;
                 let speed = Math.random() * 3 + 2.5; 
                 coronaParticles.push({
                     x: centerX + Math.cos(angle) * (baseRadius * 0.82),
-                    y: centerY + Math.sin(angle) * (baseRadius * 0.82),
+                    y: circleCenterY + Math.sin(angle) * (baseRadius * 0.82),
                     vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 1.5,
                     vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 1.5,
                     life: Math.random() * 40 + 20,
@@ -188,6 +193,7 @@
                 });
             }
 
+            // 2. 渲染高溫混色日冕火焰
             startCtx.save();
             startCtx.globalCompositeOperation = 'screen';
             for (let i = coronaParticles.length - 1; i >= 0; i--) {
@@ -209,8 +215,9 @@
             }
             startCtx.restore();
 
+            // 3. 繪製微微旋轉的魔法陣圖像（完美正圓形公式）
             startCtx.save();
-            startCtx.translate(centerX, centerY);
+            startCtx.translate(centerX, circleCenterY);
             circleRotation += 0.004; 
             startCtx.rotate(circleRotation);
             
@@ -223,7 +230,7 @@
             }
             startCtx.restore();
 
-            // Canvas 畫筆精準繪製區
+            // 4. 【空間平移大優化】：將主標題文字整體下移到 Y 軸偏下方（約螢幕 72% 位置）
             startCtx.save();
             startCtx.shadowBlur = 15;
             startCtx.shadowColor = 'rgba(255, 204, 0, 0.5)'; 
@@ -233,15 +240,17 @@
             startCtx.textBaseline = "middle";
             startCtx.letterSpacing = "2px";
 
-            let textY1 = centerY + 160; 
-            let textY2 = centerY + 205; 
+            // 將原本重疊的位置大幅往下移到手機下部空白留白區
+            let textY1 = centerY + 185; 
+            let textY2 = centerY + 230; 
 
-            // 【主標題微調】：lineWidth 改為 2 像素，讓黑色邊框變得精緻內斂
+            // 2 像素細邊框繪製
             startCtx.lineWidth = 2;
             startCtx.strokeStyle = "#000000";
             startCtx.strokeText("KINETIC SORCERY", centerX, textY1);
             startCtx.strokeText("ACADEMY", centerX, textY2);
 
+            // 魔法黃填充
             startCtx.fillStyle = "#ffcc00";
             startCtx.fillText("KINETIC SORCERY", centerX, textY1);
             startCtx.fillText("ACADEMY", centerX, textY2);
