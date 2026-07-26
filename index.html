@@ -598,6 +598,7 @@
             countdownNumber = 3;
             nextRequiredPoint = 0;
             ritualOpacity = 1.0;
+            startCtx.globalAlpha = 1.0; // 強制將畫布的物理透明度恢復為 100% 實心顯示
             wandTrail = [];
             countdownOverlay.innerText = "3";
             document.getElementById('txt-success').innerText = "0";
