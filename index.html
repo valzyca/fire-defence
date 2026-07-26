@@ -29,19 +29,9 @@
         }
         #start-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 11; }
         
+        /* 移除原本的 HTML 字體層，全面改由 Canvas 繪製以防被快取吃掉顏色 */
         #start-ui { position: relative; z-index: 12; text-align: center; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; }
-        
-        /* 基礎排版設定，核心樣式已移至標籤內部強制覆蓋 */
-        #game-title { 
-            font-family: 'Cinzel Decorative', Georgia, serif; 
-            font-size: 34px; 
-            font-weight: 700; 
-            letter-spacing: 2px; 
-            margin-top: 180px; 
-            line-height: 1.3;
-            max-width: 90%;
-        }
-        #start-prompt { font-size: 16px; color: #ffffff; -webkit-text-stroke: 0.5px #000; text-shadow: 0 0 10px #ff8c00; animation: pulseGlow 2s infinite ease-in-out; margin-top: 25px; font-weight: bold; letter-spacing: 3px; }
+        #start-prompt { font-size: 16px; color: #ffffff; -webkit-text-stroke: 0.5px #000; text-shadow: 0 0 10px #ff8c00; animation: pulseGlow 2s infinite ease-in-out; margin-top: 260px; font-weight: bold; letter-spacing: 3px; }
 
         @keyframes pulseGlow { 0%, 100% { opacity: 0.5; transform: scale(0.97); } 50% { opacity: 1; transform: scale(1.03); } }
 
@@ -88,10 +78,6 @@
             30% { transform: translate(0px, 2px) rotate(0deg); }
             40% { transform: translate(1px, -1px) rotate(1deg); }
             50% { transform: translate(-1px, 2px) rotate(-1deg); }
-            60% { transform: translate(-3px, 1px) rotate(0deg); }
-            70% { transform: translate(2px, 1px) rotate(-1deg); }
-            80% { transform: translate(-1px, -1px) rotate(1deg); }
-            90% { transform: translate(2px, 2px) rotate(0deg); }
             100% { transform: translate(1px, -2px) rotate(0deg); }
         }
         .shake-effect { animation: shake 0.4s; animation-iteration-count: 1; }
@@ -103,8 +89,7 @@
     <div id="start-screen" onclick="startGame()">
         <canvas id="start-canvas"></canvas>
         <div id="start-ui">
-            <!-- 【核心強制修正】：利用內聯樣式覆蓋快取，實現完美的黃字、粗黑描邊與背後立體黑影 -->
-            <div id="game-title" style="color: #ffcc00 !important; -webkit-text-stroke: 2px #000000 !important; text-stroke: 2px #000000 !important; text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0px 0px 20px rgba(255, 204, 0, 0.8) !important;">KINETIC SORCERY<br>ACADEMY</div>
+            <!-- 提示字往下拉，中央騰出空間交給畫筆繪製黃字黑邊 -->
             <div id="start-prompt">─ 點擊螢幕 喚醒魔杖 ─</div>
         </div>
     </div>
@@ -231,6 +216,34 @@
                 let fixedSize = Math.min(startCanvas.width, startCanvas.height) * 0.7;
                 startCtx.drawImage(magicCircleImg, -fixedSize / 2, -fixedSize / 2, fixedSize, fixedSize);
             }
+            startCtx.restore();
+
+            // 【核心驚天修正】：跳過 HTML 解析器，直接用 Canvas 畫筆強制畫上黃字黑邊與金色外發光！
+            startCtx.save();
+            // 徹底切斷並洗掉前方的橘紅色陰影污染，重設乾淨的發光屬性
+            startCtx.shadowBlur = 20;
+            startCtx.shadowColor = 'rgba(255, 204, 0, 0.7)'; 
+            
+            // 使用導入的古老魔法書字體
+            startCtx.font = "bold 34px 'Cinzel Decorative', Georgia, serif";
+            startCtx.textAlign = "center";
+            startCtx.textBaseline = "middle";
+            startCtx.letterSpacing = "2px";
+
+            let textY1 = centerY + 160; // 第一行位置
+            let textY2 = centerY + 205; // 第二行位置
+
+            // A. 強制繪製超厚實的 5 像素純黑描邊邊框 (先畫在外圍作保護色)
+            startCtx.lineWidth = 5;
+            startCtx.strokeStyle = "#000000";
+            startCtx.strokeText("KINETIC SORCERY", centerX, textY1);
+            startCtx.strokeText("ACADEMY", centerX, textY2);
+
+            // B. 在黑色描邊正中心，強制灌入飽和的「魔法黃色」像素
+            startCtx.fillStyle = "#ffcc00";
+            startCtx.fillText("KINETIC SORCERY", centerX, textY1);
+            startCtx.fillText("ACADEMY", centerX, textY2);
+            
             startCtx.restore();
 
             requestAnimationFrame(updateStartScreen);
