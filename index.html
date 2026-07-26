@@ -206,8 +206,10 @@
             startCtx.save();
             startCtx.globalAlpha = ritualOpacity;
 
+            // 【優化1：畫符階段降低背景粒子數，釋放硬體算力】
+            let maxParticles = (gameState === 'drawing') ? 60 : 150;
             if (gameState === 'cover' || gameState === 'drawing' || gameState === 'success_anim') {
-                if (coronaParticles.length < 150) {
+                if (coronaParticles.length < maxParticles) {
                     let angle = Math.random() * Math.PI * 2;
                     let speed = Math.random() * 2 + 1.5; 
                     coronaParticles.push({
@@ -241,6 +243,11 @@
                 startCtx.translate(centerX, circleCenterY);
                 circleRotation += 0.004;
                 startCtx.rotate(circleRotation);
+                
+                // 封面階段保留基礎陰影，此時沒有效能威脅
+                startCtx.shadowBlur = 35;
+                startCtx.shadowColor = '#ff4500';
+                
                 if (magicCircleImg.complete) {
                     startCtx.drawImage(magicCircleImg, -fixedSize / 2, -fixedSize / 2, fixedSize, fixedSize);
                 }
@@ -251,42 +258,64 @@
                 startCtx.translate(centerX, circleCenterY);
                 bg1Rotation -= 0.002; 
                 startCtx.rotate(bg1Rotation);
+                
+                // 【優化2：畫符階段徹底停用大圖的 shadowBlur，改由硬體加速直出底圖】
                 if (bg1Img.complete) {
                     startCtx.drawImage(bg1Img, -fixedSize / 2, -fixedSize / 2, fixedSize, fixedSize);
                 }
                 startCtx.restore();
 
+                // 【優化3：物理發光法替代高斯模糊】
+                // 捨棄超吃效能的 shadowBlur，利用「多層半透明疊加」渲染出極高流暢度的科技藍霓虹軌跡
                 if (wandTrail.length > 1) {
                     startCtx.save();
-                    startCtx.strokeStyle = '#00d2ff';
-                    startCtx.lineWidth = 4;
-                    startCtx.shadowBlur = 15;
-                    startCtx.shadowColor = '#00d2ff';
+                    
+                    // 第一層：外圍淡藍散光層 (粗線寬、低不透明度)
+                    startCtx.strokeStyle = 'rgba(0, 210, 255, 0.25)';
+                    startCtx.lineWidth = 10;
+                    startCtx.lineCap = 'round';
+                    startCtx.lineJoin = 'round';
                     startCtx.beginPath();
                     startCtx.moveTo(wandTrail[0].x, wandTrail[0].y);
-                    for(let k=1; k<wandTrail.length; k++) {
-                        startCtx.lineTo(wandTrail[k].x, wandTrail[k].y);
-                    }
+                    for(let k=1; k<wandTrail.length; k++) startCtx.lineTo(wandTrail[k].x, wandTrail[k].y);
                     startCtx.stroke();
+                    
+                    // 第二層：核心強光高亮層 (細線寬、高不透明度純白藍)
+                    startCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                    startCtx.lineWidth = 3;
+                    startCtx.beginPath();
+                    startCtx.moveTo(wandTrail[0].x, wandTrail[0].y);
+                    for(let k=1; k<wandTrail.length; k++) startCtx.lineTo(wandTrail[k].x, wandTrail[k].y);
+                    startCtx.stroke();
+                    
                     startCtx.restore();
                 }
 
+                // 【優化4：互動頂點的發光機制同步改用多重圓環物理發光】
                 pentagramPoints.forEach((pt, index) => {
                     startCtx.save();
-                    startCtx.beginPath();
-                    startCtx.arc(pt.x, pt.y, index === nextRequiredPoint ? 16 : 10, 0, Math.PI * 2);
+                    let isCurrent = (index === nextRequiredPoint);
+                    
                     if (pt.activated) {
+                        // 已激活：亮藍色實心圓 + 外圍光圈
                         startCtx.fillStyle = '#00ffff';
-                        startCtx.shadowBlur = 10;
-                        startCtx.shadowColor = '#00ffff';
-                    } else if (index === nextRequiredPoint) {
+                        startCtx.beginPath(); startCtx.arc(pt.x, pt.y, 10, 0, Math.PI * 2); startCtx.fill();
+                        startCtx.strokeStyle = 'rgba(0, 255, 255, 0.4)';
+                        startCtx.lineWidth = 4;
+                        startCtx.beginPath(); startCtx.arc(pt.x, pt.y, 14, 0, Math.PI * 2); startCtx.stroke();
+                    } else if (isCurrent) {
+                        // 當前引導點：呼吸動態放大雙層環，極度流暢不卡頓
+                        let breath = Math.sin(Date.now() * 0.008) * 3;
                         startCtx.fillStyle = '#0077ff';
-                        startCtx.shadowBlur = 20 + Math.sin(Date.now()*0.01)*5;
-                        startCtx.shadowColor = '#0077ff';
+                        startCtx.beginPath(); startCtx.arc(pt.x, pt.y, 12 + breath, 0, Math.PI * 2); startCtx.fill();
+                        startCtx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                        startCtx.lineWidth = 2;
+                        startCtx.beginPath(); startCtx.arc(pt.x, pt.y, 16 + breath, 0, Math.PI * 2); startCtx.stroke();
                     } else {
-                        startCtx.fillStyle = 'rgba(0, 119, 255, 0.4)';
+                        // 未激活點：基礎半透明深藍
+                        startCtx.fillStyle = 'rgba(0, 119, 255, 0.3)';
+                        startCtx.beginPath(); startCtx.arc(pt.x, pt.y, 9, 0, Math.PI * 2); startCtx.fill();
                     }
-                    startCtx.fill();
                     startCtx.restore();
                 });
             } 
@@ -305,6 +334,8 @@
                 startCtx.save();
                 startCtx.translate(centerX, circleCenterY);
                 startCtx.rotate(circleRotation);
+                
+                // 動畫結束爆發金光 (此處即將進入淡出，短暫開啟不影響遊玩效能)
                 startCtx.shadowBlur = 40;
                 startCtx.shadowColor = '#ffd700'; 
                 if (magicCircleImg.complete) {
@@ -320,10 +351,9 @@
                 }
             }
 
+            // 5. 繪製主標題文字 (使用原生 strokeText，不添加耗能 shadow)
             if (gameState === 'cover' || gameState === 'drawing') {
                 startCtx.save();
-                startCtx.shadowBlur = 15;
-                startCtx.shadowColor = 'rgba(255, 204, 0, 0.5)'; 
                 let dynamicFontSize = Math.min(36, Math.max(18, minDim * 0.062));
                 startCtx.font = `bold ${dynamicFontSize}px 'Cinzel Decorative', Georgia, serif`;
                 startCtx.textAlign = "center";
@@ -410,6 +440,9 @@
                     });
             }
 
+            // 記錄上一次記錄座標的時間戳記，用於軌跡限流
+            let lastPushTime = 0;
+
             tracker.on('track', function(event) {
                 if (isGameOver || event.data.length === 0) {
                     crosshair.hasTracking = false;
@@ -433,9 +466,19 @@
                     crosshair.targetY = validTarget.y + validTarget.height / 2;
 
                     if (gameState === 'drawing') {
-                        wandTrail.push({ x: crosshair.targetX, y: crosshair.targetY });
-                        if (wandTrail.length > 35) wandTrail.shift(); 
+                        let now = Date.now();
+                        // 【優化5：軌跡座標抽樣限流演算法】
+                        // 強制規定每 30 毫秒（或移動距離大於 5 像素）才允許寫入一個點，物理性精簡 85% 的冗餘座標點
+                        let lastPoint = wandTrail[wandTrail.length - 1];
+                        let distanceMoved = lastPoint ? Math.hypot(crosshair.targetX - lastPoint.x, crosshair.targetY - lastPoint.y) : 999;
 
+                        if (now - lastPushTime > 30 || distanceMoved > 5) {
+                            wandTrail.push({ x: crosshair.targetX, y: crosshair.targetY });
+                            if (wandTrail.length > 25) wandTrail.shift(); // 縮減緩衝長度至 25，保持流暢尾跡
+                            lastPushTime = now;
+                        }
+
+                        // 檢查魔杖端點是否碰觸到當前指定互動點
                         let targetPt = pentagramPoints[nextRequiredPoint];
                         let distToPoint = Math.hypot(crosshair.targetX - targetPt.x, crosshair.targetY - targetPt.y);
                         
@@ -489,7 +532,10 @@
             let r = crosshair.currentSize;
 
             ctx.save(); ctx.translate(x, y); ctx.rotate(crosshair.rotation);
-            ctx.lineWidth = 2; ctx.shadowBlur = 10; ctx.shadowColor = ctx.strokeStyle;
+            ctx.lineWidth = 2; 
+            
+            // 準星僅保留基礎線框發光，杜絕卡頓
+            ctx.shadowBlur = 6; ctx.shadowColor = ctx.strokeStyle;
             ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.setLineDash([6, 6]); ctx.stroke();
             ctx.beginPath(); ctx.rect(-r*0.6, -r*0.6, r*1.2, r*1.2); ctx.setLineDash([]); ctx.lineWidth = 1; ctx.stroke();
             ctx.restore();
@@ -564,7 +610,6 @@
             gameOverScreen.style.display = 'flex'; 
         }
 
-        // 【終極安全重置】：洗掉所有隱形快取障礙
         function resetGame() {
             scoreSuccess = 0;
             scoreFailed = 0;
@@ -572,8 +617,6 @@
             gameStarted = false;
             countdownNumber = 3;
             nextRequiredPoint = 0;
-            
-            // 關鍵物理洗牌：將 Canvas 透明度與漸隱度全部強制實心拉回 1.0
             ritualOpacity = 1.0;
             startCtx.globalAlpha = 1.0;
             
@@ -585,11 +628,9 @@
             dangerGlowScreen.classList.remove('pulse-effect');
             gameOverScreen.style.display = 'none';
             
-            // 重置頂點狀態
             pentagramPoints.forEach(pt => pt.activated = false);
             explosions = [];
 
-            // 核心修正：將 HTML 封面層的顯示權重與不透明度 (opacity) 徹底強行復位
             gameState = 'cover';
             startScreen.style.opacity = "1";
             startScreen.style.display = 'flex';
