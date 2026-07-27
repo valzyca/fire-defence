@@ -189,9 +189,7 @@
                 });
             }
         }
-        generatePentagramPoints();
 
-        // 【極致流暢優化】：手指觸控滑動核心處理器 (0延遲，免相機運算)
         function handleTouchMove(e) {
             if (gameState !== 'drawing') return;
             e.preventDefault();
@@ -205,15 +203,13 @@
                 clientY = e.clientY;
             }
 
-            // 記錄手指劃過線段
             wandTrail.push({ x: clientX, y: clientY });
             if (wandTrail.length > 30) wandTrail.shift();
 
-            // 檢測是否依序摸到發光點
             let targetPt = pentagramPoints[nextRequiredPoint];
             if (targetPt) {
                 let dist = Math.hypot(clientX - targetPt.x, clientY - targetPt.y);
-                if (dist < 40) { // 觸控判定半徑大一點，體驗更好
+                if (dist < 40) { 
                     targetPt.activated = true;
                     nextRequiredPoint++;
                     if (nextRequiredPoint >= 5) {
@@ -223,7 +219,6 @@
             }
         }
 
-        // 綁定觸控與滑鼠事件至封面層
         startScreen.addEventListener('mousedown', (e) => {
             if(gameState === 'cover') { gameState = 'drawing'; document.getElementById('start-prompt').style.display = 'none'; document.getElementById('instruction').style.display = 'block'; }
         });
@@ -236,6 +231,10 @@
 
         function updateStartScreen() {
             if (gameStarted && gameState === 'playing') return;
+
+            if (startCanvas.width !== window.innerWidth || startCanvas.height !== window.innerHeight) {
+                resizeCanvases();
+            }
             
             startCtx.fillStyle = '#000000';
             startCtx.fillRect(0, 0, startCanvas.width, startCanvas.height);
@@ -249,7 +248,6 @@
             startCtx.save();
             startCtx.globalAlpha = ritualOpacity;
 
-            // 畫符階段完全關閉火焰粒子，保證觸控網頁最高幀率
             if (gameState === 'cover' || gameState === 'success_anim') {
                 if (coronaParticles.length < 120) {
                     let angle = Math.random() * Math.PI * 2;
@@ -300,7 +298,6 @@
                 }
                 startCtx.restore();
 
-                // 渲染手指劃過的霓虹軌跡線
                 if (wandTrail.length > 1) {
                     startCtx.save();
                     startCtx.strokeStyle = 'rgba(0, 210, 255, 0.4)';
@@ -321,7 +318,6 @@
                     startCtx.restore();
                 }
 
-                // 繪製五芒星點
                 pentagramPoints.forEach((pt, index) => {
                     startCtx.save();
                     let isCurrent = (index === nextRequiredPoint);
@@ -405,7 +401,6 @@
             document.getElementById('ritual-title').style.color = "#00d2ff";
             document.getElementById('ritual-desc').innerText = "注意防禦！火球即將發射！";
             
-            // 此時才在背景無痕初始化相機顏色追蹤，完全錯開效能高峰！
             initTracker();
 
             let timer = setInterval(() => {
@@ -427,7 +422,6 @@
             }, 1000);
         }
 
-        // 顏色追蹤核心 (只在對戰階段啟動，此時畫面沒有複雜UI，極度絲滑)
         tracking.ColorTracker.registerColor('magic_red', function(r, g, b) {
             return (r > 165 && g < 55 && b < 55); 
         });
@@ -488,9 +482,11 @@
             fireball.x = canvas.width / 2;
             fireball.y = canvas.height / 2;
             fireball.size = 2;
+            
+            // 初始速度保持和緩的 1.8 倍率
             let angle = Math.random() * Math.PI * 2;
-            fireball.speedX = Math.cos(angle) * 3;
-            fireball.speedY = Math.sin(angle) * 3;
+            fireball.speedX = Math.cos(angle) * 1.8;
+            fireball.speedY = Math.sin(angle) * 1.8;
             fireball.active = true;
         }
 
@@ -524,6 +520,10 @@
         }
 
         function gameLoop() {
+            if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (gameStarted && gameState === 'playing') {
@@ -542,8 +542,12 @@
                     if (!fireball.active) {
                         spawnFireball();
                     } else {
+                        // 【核心修正：火球飛離加速度調慢】
+                        // 將火球的大小增長率從 0.9 放慢至 0.6，且逐幀飛行的速度乘積乘數從 1.03 大幅降至 1.012
                         fireball.x += fireball.speedX; fireball.y += fireball.speedY;
-                        fireball.size += 0.9; fireball.speedX *= 1.03; fireball.speedY *= 1.03;
+                        fireball.size += 0.6; 
+                        fireball.speedX *= 1.012; 
+                        fireball.speedY *= 1.012;
 
                         ctx.beginPath();
                         let gradient = ctx.createRadialGradient(fireball.x, fireball.y, fireball.size*0.2, fireball.x, fireball.y, fireball.size);
@@ -560,7 +564,8 @@
                             }
                         }
 
-                        if (fireball.active && fireball.size > 130) {
+                        // 因為大小變慢了，臨界爆炸範圍從 130 略縮至 105，確保體感時間一致但過程非常緩慢
+                        if (fireball.active && fireball.size > 105) {
                             scoreFailed++;
                             document.getElementById('txt-failed').innerText = scoreFailed;
                             document.body.classList.add('shake-effect');
@@ -617,9 +622,10 @@
             document.getElementById('start-prompt').style.display = 'block';
             document.getElementById('instruction').style.display = 'none';
             document.getElementById('scoreboard').style.display = 'none';
-            generatePentagramPoints();
+            resizeCanvases();
         }
 
+        resizeCanvases();
         updateStartScreen();
         gameLoop();
     </script>
